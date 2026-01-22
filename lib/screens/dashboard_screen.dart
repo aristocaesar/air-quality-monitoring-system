@@ -1,7 +1,10 @@
 import 'dart:convert';
+import 'package:air_quality_monitoring/screens/history_screen.dart';
+import 'package:air_quality_monitoring/screens/login_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -24,8 +27,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // ===== MQTT CONFIG =====
   final String broker = 'test.mosquitto.org';
   final String topic = 'ESP32/AIR_QUALITY_MONITORING/raw';
-  final String clientId =
-      'flutter_air_client_${DateTime.now().millisecondsSinceEpoch}';
+  final String clientId = 'air_quality_bg_client_dashboard';
 
   @override
   void initState() {
@@ -77,47 +79,71 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
   }
 
-  // ================= LOGIK STATUS KOMPREHENSIF =================
+  // ================= STATUS =================
+
+  Color getColorStatus(String type, double value) {
+    if (value == 0) return Colors.grey;
+
+    if (type == 'PM25') {
+      if (value > 55) return Colors.red;
+      if (value >= 16) return Colors.orange;
+      return Colors.green;
+    } else if (type == 'PM10') {
+      if (value > 150) return Colors.red;
+      if (value >= 51) return Colors.orange;
+      return Colors.green;
+    } else if (type == 'MQ135') {
+      if (value > 2000) return Colors.red;
+      if (value >= 1001) return Colors.orange;
+      return Colors.green;
+    }
+    return Colors.blue;
+  }
+
+  String getLabelStatus(String type, double value) {
+    if (value == 0) return "MEMUAT";
+
+    if (type == 'PM25') {
+      if (value > 55) return "TIDAK SEHAT";
+      if (value >= 16) return "SEDANG";
+      return "BAIK";
+    } else if (type == 'PM10') {
+      if (value > 150) return "TIDAK SEHAT";
+      if (value >= 51) return "SEDANG";
+      return "BAIK";
+    } else if (type == 'MQ135') {
+      if (value > 2000) return "TIDAK SEHAT";
+      if (value >= 1001) return "SEDANG";
+      return "BAIK";
+    }
+    return "NORMAL";
+  }
 
   Color getMainColor() {
-    if (pm25 == 0 && mq135 == 0) return Colors.grey; // Warna netral saat memuat
-    if (pm25 > 55 || mq135 > 2000) return Colors.red;
-    if (pm25 > 35 || mq135 > 1000) return Colors.orange;
-    if (pm25 > 12 || mq135 > 500) return Colors.blue;
+    if (pm25 == 0 && pm100 == 0 && mq135 == 0) return Colors.grey;
+    if (pm25 > 55 || pm100 > 150 || mq135 > 2000) return Colors.red;
+    if (pm25 >= 16 || pm100 >= 51 || mq135 >= 1001) return Colors.orange;
     return Colors.green;
   }
 
   String getMainStatus() {
-    if (pm25 == 0 && mq135 == 0) return "MENUNGGU DATA...";
-    if (mq135 > 2000) return "GAS BERBAHAYA!";
-    if (pm25 > 55) return "POLUSI SANGAT TINGGI";
-    if (mq135 > 1000) return "UDARA TERCEMAR GAS";
-    if (pm25 > 35) return "KUALITAS UDARA BURUK";
-    if (pm25 > 12 || mq135 > 500) return "KUALITAS SEDANG";
-    return "UDARA BERSIH & AMAN";
+    Color current = getMainColor();
+    if (current == Colors.red) return "TIDAK SEHAT";
+    if (current == Colors.orange) return "SEDANG";
+    if (current == Colors.green) return "BAIK";
+    return "MENUNGGU DATA...";
   }
 
   String getDetailedAdvice() {
-    if (pm25 == 0 && mq135 == 0) {
-      return "Sedang sinkronisasi dengan sensor ESP32...";
+    if (pm25 == 0 && mq135 == 0) return "Menghubungkan ke sensor ESP32...";
+
+    Color current = getMainColor();
+    if (current == Colors.red) {
+      return "Kualitas udara buruk! Gunakan masker dan nyalakan pemurni udara.";
+    } else if (current == Colors.orange) {
+      return "Kualitas udara sedang. Batasi aktivitas luar bagi yang sensitif.";
     }
-
-    String levelGas;
-    if (mq135 <= 500) {
-      levelGas = "Aman";
-    } else if (mq135 <= 1000) {
-      levelGas = "Normal";
-    } else if (mq135 <= 2000) {
-      levelGas = "Waspada";
-    } else {
-      levelGas = "Bahaya";
-    }
-
-    bool isUnhealthy = mq135 > 1000 || pm25 > 35;
-
-    return isUnhealthy
-        ? "Level: $levelGas. Segera buka ventilasi atau gunakan pemurni udara."
-        : "Level: $levelGas. Lingkungan Anda dalam kondisi yang baik.";
+    return "Kualitas udara baik. Aman untuk beraktivitas normal.";
   }
 
   // ================= UI WIDGETS =================
@@ -129,14 +155,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [mainColor, mainColor.withValues(alpha: .8)],
+          colors: [mainColor, mainColor.withAlpha(200)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(30),
         boxShadow: [
           BoxShadow(
-            color: mainColor.withValues(alpha: .3),
+            color: mainColor.withAlpha(80),
             blurRadius: 12,
             offset: const Offset(0, 6),
           ),
@@ -148,7 +174,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text(
-                "RINGKASAN KONDISI",
+                "STATUS KUALITAS UDARA",
                 style: TextStyle(
                   color: Colors.white70,
                   fontWeight: FontWeight.bold,
@@ -156,9 +182,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
               Icon(
-                mq135 > 1000 || pm25 > 35
-                    ? Icons.warning_amber_rounded
-                    : Icons.check_circle_outline,
+                getMainStatus() == "BAIK"
+                    ? Icons.check_circle_outline
+                    : Icons.warning_amber_rounded,
                 color: Colors.white,
                 size: 20,
               ),
@@ -170,7 +196,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             textAlign: TextAlign.center,
             style: const TextStyle(
               color: Colors.white,
-              fontSize: 24,
+              fontSize: 28,
               fontWeight: FontWeight.bold,
             ),
           ),
@@ -178,7 +204,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: .15),
+              color: Colors.white.withAlpha(40),
               borderRadius: BorderRadius.circular(15),
             ),
             child: Text(
@@ -202,14 +228,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(25),
-        border: Border.all(color: color.withValues(alpha: .1), width: 1),
+        border: Border.all(color: color.withAlpha(30), width: 1),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: .02), blurRadius: 8),
+          BoxShadow(color: Colors.black.withAlpha(10), blurRadius: 8),
         ],
       ),
       child: Column(
         children: [
-          Icon(icon, color: color, size: 40),
+          Icon(icon, color: color, size: 35),
           const SizedBox(height: 12),
           Text(
             title,
@@ -223,8 +249,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Text(
             value,
             style: TextStyle(
-              fontSize: value == "Memuat..." ? 12 : 15,
+              fontSize: 16,
               fontWeight: FontWeight.bold,
+              color: color,
             ),
           ),
           const Text(
@@ -249,6 +276,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withAlpha(10), blurRadius: 4),
+        ],
       ),
       child: Row(
         children: [
@@ -264,8 +294,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 Text(
                   value,
-                  style: TextStyle(
-                    fontSize: value == "Memuat..." ? 14 : 18,
+                  style: const TextStyle(
+                    fontSize: 18,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -275,7 +305,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
-              color: color.withValues(alpha: .1),
+              color: color.withAlpha(30),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Text(
@@ -297,14 +327,47 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF4F7FA),
       appBar: AppBar(
-        title: const Text(
-          "Air Quality Monitor",
-          style: TextStyle(fontWeight: FontWeight.bold),
+        title: const Padding(
+          padding: EdgeInsetsGeometry.all(10),
+          child: Text(
+            "Air Quality Monitor",
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
         ),
-        centerTitle: true,
+        centerTitle: false,
         backgroundColor: Colors.transparent,
         elevation: 0,
         foregroundColor: Colors.black,
+        actions: [
+          Padding(
+            padding: EdgeInsetsGeometry.all(10),
+            child: IconButton(
+              icon: const Icon(Icons.history),
+              onPressed: () async {
+                final prefs = await SharedPreferences.getInstance();
+                bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
+
+                if (isLoggedIn) {
+                  // Jika sudah login, langsung ke History
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const HistoryScreen(),
+                    ),
+                  );
+                } else {
+                  // Jika belum, arahkan ke Login
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const LoginScreen(),
+                    ),
+                  );
+                }
+              },
+            ),
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
@@ -323,26 +386,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Expanded(
                   child: buildPmCard(
                     "PM 1.0",
-                    pm10 == 0 ? "Memuat..." : pm10.toStringAsFixed(1),
+                    pm10 == 0 ? "..." : pm10.toStringAsFixed(1),
                     Colors.teal,
                     Icons.grain,
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
                 Expanded(
                   child: buildPmCard(
                     "PM 2.5",
-                    pm25 == 0 ? "Memuat..." : pm25.toStringAsFixed(1),
-                    Colors.orange,
+                    pm25 == 0 ? "..." : pm25.toStringAsFixed(1),
+                    getColorStatus('PM25', pm25),
                     Icons.blur_on,
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
                 Expanded(
                   child: buildPmCard(
                     "PM 10.0",
-                    pm100 == 0 ? "Memuat..." : pm100.toStringAsFixed(1),
-                    Colors.blueGrey,
+                    pm100 == 0 ? "..." : pm100.toStringAsFixed(1),
+                    getColorStatus('PM10', pm100),
                     Icons.cloud,
                   ),
                 ),
@@ -350,32 +413,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             const SizedBox(height: 25),
             const Text(
-              "Detail Sensor",
+              "Detail Sensor & Gas",
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             const SizedBox(height: 12),
             buildWideCard(
-              title: "Kualitas Gas",
+              title: "Konsentrasi Gas (CO2/MQ135)",
               value: "$mq135 PPM",
-              status: mq135 > 1000 ? "POLUSI" : "AMAN",
-              color: Colors.purple,
+              status: getLabelStatus('MQ135', mq135.toDouble()),
+              color: getColorStatus('MQ135', mq135.toDouble()),
               icon: Icons.gas_meter_outlined,
             ),
             buildWideCard(
               title: "Suhu Udara",
               value: temperature == 0 ? "Memuat..." : "$temperature °C",
-              status: temperature == 0
-                  ? "MENUNGGU"
-                  : (temperature > 30 ? "PANAS" : "NYAMAN"),
-              color: Colors.deepOrange,
+              status: temperature > 30 ? "PANAS" : "NORMAL",
+              color: temperature > 30 ? Colors.deepOrange : Colors.blue,
               icon: Icons.thermostat_outlined,
             ),
             buildWideCard(
               title: "Kelembapan",
               value: humidity == 0 ? "Memuat..." : "$humidity %",
-              status: humidity == 0
-                  ? "MENUNGGU"
-                  : (humidity > 70 ? "LEMBAP" : "NORMAL"),
+              status: humidity > 70 ? "LEMBAP" : "NORMAL",
               color: Colors.blueAccent,
               icon: Icons.water_drop_outlined,
             ),
